@@ -1,11 +1,10 @@
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, Response, status, Query
 
 from app.schemas.product_schema import (
     ProductCreate,
     ProductUpdate,
     ProductResponse,
-    MessageResponse,
 )
 from app.services.product_service import product_service
 
@@ -171,13 +170,12 @@ def update_product(product_id: str, update_data: ProductUpdate):
 # ---------------------------------------------------------------------------
 @router.delete(
     "/{product_id}",
-    response_model=MessageResponse,
-    status_code=status.HTTP_200_OK,
+    status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a Product by ID",
     description=(
         "Accepts a product ID as a URL path parameter. Deletes the matching product from "
-        "memory and returns a confirmation message. Returns HTTP 404 if the product does "
-        "not exist."
+        "memory and returns HTTP 204 with no response body. Returns HTTP 404 if the product "
+        "does not exist."
     ),
 )
 def delete_product(product_id: str):
@@ -196,5 +194,4 @@ def delete_product(product_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Product with ID '{product_id}' was not found. Cannot delete.",
         )
-    return {"message": f"Product with ID '{product_id}' has been successfully deleted."}
-
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

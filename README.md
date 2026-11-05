@@ -27,8 +27,8 @@ shopease-product-service/
 ## Installation
 
 ```bash
-git clone https://github.com/Mlokeshnaidu/shopease-product-service.git
-cd shopease-product-service
+git clone https://github.com/Mlokeshnaidu/shopease-microservices.git
+cd shopease-microservices
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
@@ -62,7 +62,7 @@ Open http://localhost:8003/docs
 | GET | `/api/products/` | List products (`category`, `skip`, `limit`) | 200 | 422 |
 | GET | `/api/products/{product_id}` | Get a product | 200 | 404 |
 | PUT | `/api/products/{product_id}` | Update a product | 200 | 404, 422 |
-| DELETE | `/api/products/{product_id}` | Delete a product | 200 | 404 |
+| DELETE | `/api/products/{product_id}` | Delete a product | 204 | 404 |
 
 Example request body (create / update):
 
@@ -91,7 +91,7 @@ Start the container, open http://localhost:8003/docs, and use **Try it out** on 
 6. Retrieve by valid ID (200)
 7. Retrieve by invalid ID (404)
 8. Update a product (200)
-9. Delete a product (200)
+9. Delete a product (204)
 10. Retrieve the deleted product (404)
 11. Filter by category (200)
 12. Pagination with skip and limit (200)
