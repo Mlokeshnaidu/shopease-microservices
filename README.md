@@ -1,6 +1,6 @@
 # ShopEase Microservices
 
-This repository contains two independent ShopEase services. They have separate
+This repository contains independent ShopEase services. They have separate
 source trees, dependency manifests, runtime configuration, and Docker
 instructions. They do not import from, call, or share a database with each
 other. No service-to-service connection is configured.
@@ -34,12 +34,15 @@ Each service README contains its own setup, API, and testing instructions.
 | Service | Responsibility | Dependencies and data | Local URL |
 |---|---|---|---|
 | Authentication | Registration, login, and JWT-protected auth APIs | Its own `requirements.txt`, `.env`, Docker Compose configuration, and MySQL database | `http://localhost:8002/docs` |
+| User | JWT-protected customer profiles, account status, and delivery addresses | Its own `requirements.txt`, `.env`, Docker Compose configuration, and MySQL database; validates auth-issued JWTs using shared settings | `http://localhost:8004/docs` |
 | Product | Product CRUD APIs | Its own `requirements.txt`; in-memory product data; no database | `http://localhost:8003/docs` |
 
 Install dependencies and run commands from the corresponding service directory.
 Do not install both services' requirements into one shared virtual environment.
-The authentication Compose stack creates its own network for the auth API and
-its MySQL database; the Product Service is not attached to that network.
+The auth and user Compose stacks each own their network and MySQL database.
+The User Service performs local JWT validation; configure its JWT key and
+algorithm to match Authentication. The Product Service is not attached to
+either database network.
 
 ## Run a service independently
 
@@ -54,6 +57,19 @@ docker compose up --build
 
 Open `http://localhost:8002/docs`. The service-specific README documents local
 Python setup and database migrations.
+
+### User Management Service
+
+Configure `shopease-user-service/.env` from its `.env.example`, ensuring its
+JWT settings match Authentication, then run:
+
+```powershell
+cd shopease-user-service
+docker compose up --build
+```
+
+Open `http://localhost:8004/docs`. The service-specific README documents its
+API, account deactivation behavior, and Alembic migrations.
 
 ### Product Service
 

@@ -1,0 +1,53 @@
+services:
+  user-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ""
+      MYSQL_HOST: user-mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: shopease_user_db
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY to the Authentication Service key}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://host.docker.internal:8002}
+    ports:
+      - "8004:8000"
+    depends_on:
+      user-mysql:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    networks:
+      - user-network
+
+  user-mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: shopease_user_db
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - user-mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping --host=localhost --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - user-network
+
+volumes:
+  user-mysql-data:
+
+networks:
+  user-network:
+    driver: bridge
