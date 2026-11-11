@@ -100,15 +100,18 @@ password, database, and JWT secret in `.env`. The settings use
 `mysql+pymysql` URL from the MySQL settings. The Docker Compose service
 overrides the host with `auth-mysql`.
 
-Generate a secret using the Python cryptographic random-number generator:
+Configure `JWT_PRIVATE_KEY_FILE` and `JWT_PUBLIC_KEY_FILE` in `.env`. Generate
+an RSA key pair with OpenSSL:
 
 ```powershell
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+New-Item -ItemType Directory -Force keys | Out-Null
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out keys/jwt_private.pem
+openssl pkey -in keys/jwt_private.pem -pubout -out keys/jwt_public.pem
 ```
 
-Generate distinct values for `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD`, and
-`JWT_SECRET_KEY`. Keep `.env` out of source control and never log or return
-secrets. Use a secret manager for deployed environments.
+Keep the private key only in Auth. Provision only the public key to User. The
+service signs with RS256 and checks that its private/public files match during
+startup. Keep `.env` and key files out of source control.
 
 ### Run migrations and start the API
 
@@ -236,9 +239,11 @@ Invoke-RestMethod -Uri "http://localhost:8002/api/auth/me" `
   -Headers @{ Authorization = "Bearer $token" }
 ```
 
-JWT signing algorithm and expiration are configured by `JWT_ALGORITHM` and
-`ACCESS_TOKEN_EXPIRE_MINUTES`. The token includes the user ID as a string in
-`sub`, the user's `role`, and `iat`/`exp` timestamps. Keep the token private.
+JWT signing uses `JWT_PRIVATE_KEY_FILE`; verification uses
+`JWT_PUBLIC_KEY_FILE`. The algorithm is fixed to RS256. Expiration is
+configured by `ACCESS_TOKEN_EXPIRE_MINUTES`. Tokens include the user ID as a
+string in `sub`, the user's `role`, `iat`/`exp`, `iss`, and `aud` claims. Keep
+tokens private.
 
 Token verification uses the same Bearer header:
 

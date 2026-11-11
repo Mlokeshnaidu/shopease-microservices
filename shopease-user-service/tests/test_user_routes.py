@@ -1,8 +1,12 @@
 from fastapi.testclient import TestClient
+from datetime import datetime, timedelta, timezone
+from jose import jwt
 
+from app.core.config import settings
+from app.core.security import JWT_AUDIENCE, JWT_ISSUER
 from app.core.dependencies import get_authenticated_user_id
 from app.main import app
-from conftest import make_token
+from conftest import _other_private_key_pem, _test_private_key_pem, make_token
 
 
 PROFILE = {"full_name": "Asha Customer", "phone_number": "+1 415 555 0134"}
@@ -25,9 +29,24 @@ def test_missing_or_invalid_token_is_unauthorized():
         assert client.get(
             "/api/users/profile", headers={"Authorization": "Bearer invalid"}
         ).status_code == 401
-        wrong_secret = make_token(secret="different-wrong-signing-secret-32-bytes")
+        wrong_secret = make_token(private_key=_other_private_key_pem)
         assert client.get(
             "/api/users/profile", headers={"Authorization": f"Bearer {wrong_secret}"}
+        ).status_code == 401
+        expired = jwt.encode(
+            {
+                "sub": "101",
+                "role": "customer",
+                "iat": datetime.now(timezone.utc) - timedelta(minutes=10),
+                "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+                "iss": JWT_ISSUER,
+                "aud": JWT_AUDIENCE,
+            },
+            _test_private_key_pem,
+            algorithm=settings.jwt_algorithm,
+        )
+        assert client.get(
+            "/api/users/profile", headers={"Authorization": f"Bearer {expired}"}
         ).status_code == 401
 
 
@@ -102,10 +121,20 @@ def test_addresses_are_owned_and_only_one_is_default(client):
     assert next(address for address in addresses if address["is_default"])["id"] == second.json()["id"]
 
     app.dependency_overrides[get_authenticated_user_id] = lambda: 202
+    assert client.get("/api/users/profile").status_code == 404
     other_profile = client.post("/api/users/profile", json=PROFILE)
     assert other_profile.status_code == 201
+    assert other_profile.json()["auth_user_id"] == 202
+    assert client.get("/api/users/profile").json()["auth_user_id"] == 202
     assert client.get(f"/api/users/addresses/{first.json()['id']}").status_code == 403
+    assert client.put(
+        f"/api/users/addresses/{first.json()['id']}",
+        json={**ADDRESS, "is_default": True},
+    ).status_code == 403
     assert client.delete(f"/api/users/addresses/{first.json()['id']}").status_code == 403
+    assert client.patch(
+        f"/api/users/addresses/{first.json()['id']}/default"
+    ).status_code == 403
     app.dependency_overrides[get_authenticated_user_id] = lambda: 101
     assert client.delete(f"/api/users/addresses/{first.json()['id']}").status_code == 204
     assert client.get("/api/users/addresses/9999").status_code == 404
@@ -115,3 +144,33 @@ def test_address_requires_valid_mandatory_fields(client):
     assert client.post("/api/users/profile", json=PROFILE).status_code == 201
     invalid = {**ADDRESS, "phone_number": "bad", "city": ""}
     assert client.post("/api/users/addresses", json=invalid).status_code == 422
+    forged_owner = {**ADDRESS, "user_id": 999}
+    assert client.post("/api/users/addresses", json=forged_owner).status_code == 422
+
+
+def test_new_default_address_replaces_previous_default(client):
+    assert client.post("/api/users/profile", json=PROFILE).status_code == 201
+    first = client.post(
+        "/api/users/addresses", json={**ADDRESS, "is_default": True}
+    )
+    second = client.post(
+        "/api/users/addresses",
+        json={**ADDRESS, "address_line_1": "50 Pine Street", "is_default": True},
+    )
+    assert first.status_code == second.status_code == 201
+    addresses = client.get("/api/users/addresses").json()
+    assert len(addresses) == 2
+    assert sum(address["is_default"] for address in addresses) == 1
+    assert next(address for address in addresses if address["is_default"])["id"] == second.json()["id"]
+
+
+def test_delete_profile_removes_profile_and_addresses_only(client):
+    assert client.post("/api/users/profile", json=PROFILE).status_code == 201
+    address = client.post("/api/users/addresses", json=ADDRESS)
+    assert address.status_code == 201
+
+    deleted = client.delete("/api/users/profile")
+    assert deleted.status_code == 204
+    assert client.get("/api/users/profile").status_code == 404
+    assert client.get(f"/api/users/addresses/{address.json()['id']}").status_code == 404
+    assert client.post("/api/users/profile", json=PROFILE).status_code == 201

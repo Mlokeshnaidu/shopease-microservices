@@ -1,16 +1,10 @@
 """Reusable application settings loaded from the environment or .env file."""
 
-from pydantic import SecretStr
-from pydantic import model_validator
+from pathlib import Path
+
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
-
-
-_JWT_MINIMUM_KEY_BYTES = {
-    "HS256": 32,
-    "HS384": 48,
-    "HS512": 64,
-}
 
 
 class Settings(BaseSettings):
@@ -28,23 +22,20 @@ class Settings(BaseSettings):
     mysql_user: str
     mysql_password: SecretStr
 
-    jwt_secret_key: SecretStr
-    jwt_algorithm: str = "HS256"
+    jwt_private_key_file: Path = Path("keys/jwt_private.pem")
+    jwt_public_key_file: Path = Path("keys/jwt_public.pem")
+    jwt_algorithm: str = "RS256"
     access_token_expire_minutes: int = 30
+
+    @field_validator("jwt_algorithm")
+    @classmethod
+    def require_rs256(cls, value: str) -> str:
+        if value != "RS256":
+            raise ValueError("JWT_ALGORITHM must be RS256.")
+        return value
 
     @model_validator(mode="after")
     def validate_jwt_configuration(self) -> "Settings":
-        minimum_key_bytes = _JWT_MINIMUM_KEY_BYTES.get(self.jwt_algorithm)
-        if minimum_key_bytes is None:
-            raise ValueError("JWT_ALGORITHM must be HS256, HS384, or HS512.")
-
-        key_bytes = self.jwt_secret_key.get_secret_value().encode("utf-8")
-        if len(key_bytes) < minimum_key_bytes:
-            raise ValueError(
-                f"JWT_SECRET_KEY must contain at least {minimum_key_bytes} UTF-8 bytes "
-                f"for {self.jwt_algorithm}."
-            )
-
         if self.access_token_expire_minutes <= 0:
             raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be a positive integer.")
 

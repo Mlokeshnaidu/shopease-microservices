@@ -25,18 +25,17 @@ requirements.txt
 
 Send `Authorization: Bearer <access_token>` on protected endpoints. The service
 validates the token signature, expiry, subject, role, and issued-at claim using
-the same `JWT_SECRET_KEY` and `JWT_ALGORITHM` as the Authentication Service.
+the Authentication Service's RS256 public key.
 The authentication service's current token format uses the auth account ID as
-the `sub` claim. Share the signing secret securely through deployment
-configuration; never commit it. The optional `AUTH_SERVICE_URL` setting
-documents/configures the paired service URL, but access-token verification is
+the `sub` claim. Only the public key is provisioned to User; the private
+signing key stays exclusively in Authentication. Access-token verification is
 local and does not make an HTTP call.
 
 Client-supplied user IDs are never used for ownership. Profiles bind
 `auth_user_id` to the JWT subject and all address operations query through the
 authenticated profile. Missing or invalid tokens receive 401; cross-account
-resource IDs are scoped and reported as 404 to avoid disclosing resource
-existence. A deactivated local profile receives 403.
+resource IDs are denied with 403, and unknown resource IDs receive 404. A
+deactivated local profile receives 403.
 
 Deactivation (`POST /api/users/account/deactivate`) is local to this service:
 it soft-disables the profile and blocks subsequent profile/address operations.
@@ -46,6 +45,14 @@ account suspension/token revocation separately when required. Re-enablement
 requires an authorized administrative workflow; this service does not provide
 one. `DELETE /api/users/profile` permanently removes this profile and its
 addresses only, and likewise does not change the auth account.
+
+The User Service never calls the Authentication Service during requests.
+Authentication outages therefore do not interrupt requests using already
+issued, unexpired tokens; new login/token issuance remains the Authentication
+Service's responsibility. Because verification uses a public key, User cannot
+mint Auth tokens. A User database outage is reported as a User Service 503 and
+does not change Authentication Service data or availability. Each service has
+a separate Compose network, database, and persistent volume.
 
 ## Database and configuration
 
@@ -58,8 +65,8 @@ Create `.env` from `.env.example`. The Compose stack provisions its own
 | `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` | User database credentials |
 | `MYSQL_ROOT_PASSWORD` | MySQL container administration password |
 | `DATABASE_URL` | Optional complete SQLAlchemy URL; leave empty to use MySQL variables |
-| `JWT_SECRET_KEY`, `JWT_ALGORITHM` | Must match the Authentication Service |
-| `AUTH_SERVICE_URL` | Paired Authentication Service URL (informational; JWTs are locally verified) |
+| `JWT_PUBLIC_KEY_FILE` | Path to Auth's RS256 public key |
+| `JWT_ALGORITHM` | Fixed to `RS256` |
 
 `user_profiles.auth_user_id` is unique. `user_addresses.user_id` has a
 foreign-key relationship with cascading profile deletion. The application
@@ -72,8 +79,8 @@ From this directory:
 
 ```powershell
 Copy-Item .env.example .env
-# Set distinct strong MySQL passwords, and set JWT_SECRET_KEY/JWT_ALGORITHM
-# to the same values configured for shopease-auth-service.
+# Set distinct MySQL passwords and copy only Auth's public key to keys/jwt_public.pem.
+# Keep Auth's private key exclusively in shopease-auth-service/keys/.
 docker compose up --build
 ```
 

@@ -1,12 +1,10 @@
 """Environment-backed settings for the User Management Service."""
 
-from pydantic import SecretStr, model_validator
+from pathlib import Path
+
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
-
-
-_JWT_MINIMUM_KEY_BYTES = {"HS256": 32, "HS384": 48, "HS512": 64}
-
 
 class Settings(BaseSettings):
     app_name: str = "ShopEase User Management Service"
@@ -20,9 +18,8 @@ class Settings(BaseSettings):
     mysql_user: str = "shopease_user"
     mysql_password: SecretStr = SecretStr("")
 
-    jwt_secret_key: SecretStr
-    jwt_algorithm: str = "HS256"
-    auth_service_url: str = "http://localhost:8002"
+    jwt_public_key_file: Path = Path("keys/jwt_public.pem")
+    jwt_algorithm: str = "RS256"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -30,17 +27,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @model_validator(mode="after")
-    def validate_jwt_configuration(self) -> "Settings":
-        minimum_key_bytes = _JWT_MINIMUM_KEY_BYTES.get(self.jwt_algorithm)
-        if minimum_key_bytes is None:
-            raise ValueError("JWT_ALGORITHM must be HS256, HS384, or HS512.")
-        if len(self.jwt_secret_key.get_secret_value().encode("utf-8")) < minimum_key_bytes:
-            raise ValueError(
-                f"JWT_SECRET_KEY must contain at least {minimum_key_bytes} UTF-8 bytes "
-                f"for {self.jwt_algorithm}."
-            )
-        return self
+    @field_validator("jwt_algorithm")
+    @classmethod
+    def require_rs256(cls, value: str) -> str:
+        if value != "RS256":
+            raise ValueError("JWT_ALGORITHM must be RS256.")
+        return value
 
     @property
     def sqlalchemy_database_url(self) -> URL:

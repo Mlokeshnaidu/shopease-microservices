@@ -1,6 +1,32 @@
 from collections.abc import Callable, Generator
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+_test_key_directory = TemporaryDirectory()
+_test_key_path = Path(_test_key_directory.name)
+_test_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+(_test_key_path / "jwt_private.pem").write_bytes(
+    _test_private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+)
+(_test_key_path / "jwt_public.pem").write_bytes(
+    _test_private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+)
+os.environ["JWT_PRIVATE_KEY_FILE"] = str(_test_key_path / "jwt_private.pem")
+os.environ["JWT_PUBLIC_KEY_FILE"] = str(_test_key_path / "jwt_public.pem")
+os.environ["JWT_ALGORITHM"] = "RS256"
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker

@@ -1,15 +1,57 @@
 """Reusable password hashing and JWT access-token helpers."""
 
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from jose import JWTError, jwt
 from jose.exceptions import ExpiredSignatureError
 from passlib.context import CryptContext
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
 
 from app.core.config import settings
 
 _password_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+JWT_ISSUER = "shopease-auth-service"
+JWT_AUDIENCE = "shopease-services"
+
+
+@lru_cache(maxsize=4)
+def _read_private_key(path: str) -> str:
+    pem = Path(path).read_text(encoding="ascii")
+    key = serialization.load_pem_private_key(pem.encode("ascii"), password=None)
+    if not isinstance(key, RSAPrivateKey) or key.key_size < 2048:
+        raise ValueError("JWT private key must be an RSA key of at least 2048 bits.")
+    return pem
+
+
+@lru_cache(maxsize=4)
+def _read_public_key(path: str) -> str:
+    pem = Path(path).read_text(encoding="ascii")
+    key = serialization.load_pem_public_key(pem.encode("ascii"))
+    if not isinstance(key, RSAPublicKey) or key.key_size < 2048:
+        raise ValueError("JWT public key must be an RSA key of at least 2048 bits.")
+    return pem
+
+
+def load_private_key() -> str:
+    return _read_private_key(str(settings.jwt_private_key_file.resolve()))
+
+
+def load_public_key() -> str:
+    return _read_public_key(str(settings.jwt_public_key_file.resolve()))
+
+
+def validate_signing_key_pair() -> None:
+    private_key = serialization.load_pem_private_key(
+        load_private_key().encode("ascii"),
+        password=None,
+    )
+    public_key = serialization.load_pem_public_key(load_public_key().encode("ascii"))
+    if private_key.public_key().public_numbers() != public_key.public_numbers():
+        raise ValueError("JWT private and public key files do not match.")
 
 
 class InvalidAccessTokenError(ValueError):
@@ -59,10 +101,12 @@ def create_access_token(user_id: str | int, role: str) -> str:
         "role": role,
         "iat": issued_at,
         "exp": issued_at + timedelta(minutes=settings.access_token_expire_minutes),
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
     }
     return jwt.encode(
         payload,
-        settings.jwt_secret_key.get_secret_value(),
+        load_private_key(),
         algorithm=settings.jwt_algorithm,
     )
 
@@ -72,12 +116,16 @@ def verify_access_token(token: str) -> dict[str, Any]:
     try:
         payload = jwt.decode(
             token,
-            settings.jwt_secret_key.get_secret_value(),
+            load_public_key(),
             algorithms=[settings.jwt_algorithm],
+            issuer=JWT_ISSUER,
+            audience=JWT_AUDIENCE,
             options={
                 "require_sub": True,
                 "require_iat": True,
                 "require_exp": True,
+                "require_iss": True,
+                "require_aud": True,
             },
         )
     except ExpiredSignatureError:

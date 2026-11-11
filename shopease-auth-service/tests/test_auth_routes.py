@@ -4,7 +4,12 @@ import pytest
 from jose import jwt
 
 from app.core.config import settings
-from app.core.security import create_access_token
+from app.core.security import (
+    JWT_AUDIENCE,
+    JWT_ISSUER,
+    create_access_token,
+    load_private_key,
+)
 from app.models.user_model import User
 
 
@@ -169,11 +174,17 @@ def signed_token(user_id: int, role: str, secret: str | None = None, expired: bo
     now = datetime.now(timezone.utc)
     issued_at = now - timedelta(minutes=2) if expired else now
     expires_at = now - timedelta(minutes=1) if expired else now + timedelta(minutes=10)
-    return jwt.encode(
-        {"sub": str(user_id), "role": role, "iat": issued_at, "exp": expires_at},
-        secret or settings.jwt_secret_key.get_secret_value(),
-        algorithm=settings.jwt_algorithm,
-    )
+    claims = {
+        "sub": str(user_id),
+        "role": role,
+        "iat": issued_at,
+        "exp": expires_at,
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
+    }
+    if secret:
+        return jwt.encode(claims, secret, algorithm="HS256")
+    return jwt.encode(claims, load_private_key(), algorithm=settings.jwt_algorithm)
 
 
 @pytest.mark.parametrize("path", ["/api/auth/verify-token", "/api/auth/me"])

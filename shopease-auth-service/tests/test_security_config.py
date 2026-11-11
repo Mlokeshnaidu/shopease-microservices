@@ -1,10 +1,18 @@
+import os
+
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
 from pydantic import SecretStr, ValidationError
 from sqlalchemy.exc import OperationalError
 
-from app.core.config import Settings
-from app.core.security import hash_password, validate_password_policy
+from app.core.config import Settings, settings
+from app.core.security import (
+    hash_password,
+    validate_password_policy,
+    validate_signing_key_pair,
+)
 from app.schemas.auth_schema import UserRegister
 from app.services.auth_service import register_user
 
@@ -14,7 +22,8 @@ def make_settings(**overrides) -> Settings:
         "mysql_database": "test_db",
         "mysql_user": "test_user",
         "mysql_password": "mysql-test-password",
-        "jwt_secret_key": "a" * 64,
+        "jwt_private_key_file": os.environ["JWT_PRIVATE_KEY_FILE"],
+        "jwt_public_key_file": os.environ["JWT_PUBLIC_KEY_FILE"],
         "_env_file": None,
     }
     values.update(overrides)
@@ -45,33 +54,29 @@ def test_bcrypt_rejects_password_over_72_utf8_bytes_without_truncating():
         )
 
 
-@pytest.mark.parametrize("algorithm", ["HS256", "HS384", "HS512"])
-def test_jwt_settings_accept_allowed_algorithms_with_sufficient_key(algorithm):
-    required_bytes = {"HS256": 32, "HS384": 48, "HS512": 64}[algorithm]
-    configured = make_settings(
-        jwt_algorithm=algorithm,
-        jwt_secret_key="s" * required_bytes,
+def test_jwt_settings_require_rs256():
+    assert make_settings().jwt_algorithm == "RS256"
+
+
+def test_startup_rejects_mismatched_signing_key_pair(tmp_path, monkeypatch):
+    other_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key_path = tmp_path / "other_public.pem"
+    public_key_path.write_bytes(
+        other_private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
     )
+    monkeypatch.setattr(settings, "jwt_public_key_file", public_key_path)
 
-    assert configured.jwt_algorithm == algorithm
+    with pytest.raises(ValueError, match="do not match"):
+        validate_signing_key_pair()
 
 
-def test_jwt_settings_reject_unknown_algorithm():
+@pytest.mark.parametrize("algorithm", ["HS256", "HS384", "HS512", "none"])
+def test_jwt_settings_reject_non_rs256_algorithm(algorithm):
     with pytest.raises(ValidationError, match="JWT_ALGORITHM"):
-        make_settings(jwt_algorithm="none")
-
-
-@pytest.mark.parametrize(
-    ("algorithm", "secret"),
-    [
-        ("HS256", "s" * 31),
-        ("HS384", "s" * 47),
-        ("HS512", "s" * 63),
-    ],
-)
-def test_jwt_settings_reject_weak_secret(algorithm, secret):
-    with pytest.raises(ValidationError, match="JWT_SECRET_KEY"):
-        make_settings(jwt_algorithm=algorithm, jwt_secret_key=secret)
+        make_settings(jwt_algorithm=algorithm)
 
 
 @pytest.mark.parametrize("expiry", [0, -1])

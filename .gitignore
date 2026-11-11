@@ -6,11 +6,15 @@
 **/.env.*
 !**/.env.example
 
+# Local verification screenshots
+**/ShopEase_Screenshots.pdf
+
 # Virtual environments
 venv/
 .venv/
 **/venv/
 **/.venv/
+**/keys/
 
 # Python-generated files and test/tool caches
 __pycache__/

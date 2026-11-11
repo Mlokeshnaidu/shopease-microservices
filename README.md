@@ -1,9 +1,10 @@
 # ShopEase Microservices
 
 This repository contains independent ShopEase services. They have separate
-source trees, dependency manifests, runtime configuration, and Docker
-instructions. They do not import from, call, or share a database with each
-other. No service-to-service connection is configured.
+source trees, dependency manifests, runtime configuration, Docker networks,
+and databases. No service imports another service's code or shares its
+database. User validates Auth JWTs locally using an RS256 public key; only
+Authentication has the private signing key.
 
 ## Repository structure
 
@@ -34,21 +35,22 @@ Each service README contains its own setup, API, and testing instructions.
 | Service | Responsibility | Dependencies and data | Local URL |
 |---|---|---|---|
 | Authentication | Registration, login, and JWT-protected auth APIs | Its own `requirements.txt`, `.env`, Docker Compose configuration, and MySQL database | `http://localhost:8002/docs` |
-| User | JWT-protected customer profiles, account status, and delivery addresses | Its own `requirements.txt`, `.env`, Docker Compose configuration, and MySQL database; validates auth-issued JWTs using shared settings | `http://localhost:8004/docs` |
+| User | JWT-protected customer profiles, account status, and delivery addresses | Its own `requirements.txt`, `.env`, Docker Compose configuration, and MySQL database | `http://localhost:8004/docs` |
 | Product | Product CRUD APIs | Its own `requirements.txt`; in-memory product data; no database | `http://localhost:8003/docs` |
 
 Install dependencies and run commands from the corresponding service directory.
 Do not install both services' requirements into one shared virtual environment.
-The auth and user Compose stacks each own their network and MySQL database.
-The User Service performs local JWT validation; configure its JWT key and
-algorithm to match Authentication. The Product Service is not attached to
-either database network.
+The auth and user Compose stacks each own a network, MySQL database, and
+volume. Product has no database and keeps its product data in its own process
+memory. User does not call Authentication: it verifies signed tokens locally
+with the public key and cannot mint tokens. Auth or User database outages
+remain local to their owning service.
 
 ## Run a service independently
 
 ### Authentication Service
 
-Configure `shopease-auth-service/.env` using its `.env.example`, then run:
+Configure `shopease-auth-service/.env`, then run:
 
 ```powershell
 cd shopease-auth-service
@@ -60,8 +62,8 @@ Python setup and database migrations.
 
 ### User Management Service
 
-Configure `shopease-user-service/.env` from its `.env.example`, ensuring its
-JWT settings match Authentication, then run:
+Copy only Authentication's public key into `shopease-user-service/keys/`,
+configure `shopease-user-service/.env`, then run:
 
 ```powershell
 cd shopease-user-service
@@ -89,6 +91,11 @@ Each service owns its environment configuration. Real `.env` files and local
 virtual environments are ignored by Git; `.env.example` files are intended for
 sharing and must contain placeholders only. Never commit credentials, tokens,
 or other secrets.
+
+## Local screenshots
+
+Keep the local `ShopEase_Screenshots.pdf` verification evidence in your
+Downloads folder. The PDF is ignored by Git and is not included in the project.
 
 ## GitHub
 
