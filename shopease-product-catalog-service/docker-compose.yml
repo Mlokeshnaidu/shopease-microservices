@@ -39,7 +39,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - mysqladmin ping --host=localhost --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent
+        - mysqladmin ping --protocol=TCP --host=127.0.0.1 --port=3306 --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent
       interval: 5s
       timeout: 5s
       retries: 12
