@@ -112,7 +112,12 @@ class ProductService:
             if category is None or not category.is_active:
                 raise ValueError("Category does not exist or is inactive.")
 
-        product = db.scalar(select(Product).where(Product.id == product.id).with_for_update())
+        product = db.scalar(
+            select(Product)
+            .where(Product.id == product.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if product is None:
             raise ValueError("Product not found.")
         resulting_price = values.get("price", product.price)
