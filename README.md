@@ -24,6 +24,14 @@ Authentication has the private signing key.
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── README.md
+├── shopease-product-catalog-service/
+│   ├── app/
+│   ├── alembic/
+│   ├── tests/
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   └── README.md
 ├── .gitignore
 └── README.md
 ```
@@ -37,14 +45,18 @@ Each service README contains its own setup, API, and testing instructions.
 | Authentication | Registration, login, and JWT-protected auth APIs | Its own `requirements.txt`, `.env`, Docker Compose configuration, and MySQL database | `http://localhost:8002/docs` |
 | User | JWT-protected customer profiles, account status, and delivery addresses | Its own `requirements.txt`, `.env`, Docker Compose configuration, and MySQL database | `http://localhost:8004/docs` |
 | Product | Product CRUD APIs | Its own `requirements.txt`; in-memory product data; no database | `http://localhost:8003/docs` |
+| Product Catalog | JWT-protected product/category catalog, search, and transactional inventory management | Its own `requirements.txt`, `.env`, Docker Compose configuration, Alembic migrations, and MySQL database | `http://localhost:8005/docs` |
 
 Install dependencies and run commands from the corresponding service directory.
-Do not install both services' requirements into one shared virtual environment.
+Do not install multiple services' requirements into one shared virtual environment.
 The auth and user Compose stacks each own a network, MySQL database, and
 volume. Product has no database and keeps its product data in its own process
 memory. User does not call Authentication: it verifies signed tokens locally
 with the public key and cannot mint tokens. Auth or User database outages
-remain local to their owning service.
+remain local to their owning service. Product Catalog is separate from the
+original Product Service, owns a third isolated MySQL database, and verifies
+Auth JWTs locally with the Auth Service public key. See
+`shopease-product-catalog-service/README.md` for setup and API details.
 
 ## Run a service independently
 
@@ -84,6 +96,19 @@ docker run --rm --name shopease-product-container -p 8003:8003 shopease-product-
 
 Open `http://localhost:8003/docs`. Product records are held in memory and are
 not shared with the Authentication Service.
+
+### Product Catalog Service
+
+Configure `shopease-product-catalog-service/.env` and provide the Auth
+Service's public key path, then run:
+
+```powershell
+cd shopease-product-catalog-service
+docker compose up --build
+```
+
+Open `http://localhost:8005/docs`. This service owns a separate MySQL database;
+its Compose startup applies Alembic migrations before starting the API.
 
 ## Configuration and secrets
 
