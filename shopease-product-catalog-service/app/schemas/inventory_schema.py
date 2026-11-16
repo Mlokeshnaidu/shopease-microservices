@@ -31,3 +31,24 @@ class InventoryTransactionResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class InventoryReservationItem(BaseModel):
+    product_id: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=10000)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class InventoryReservationCreate(BaseModel):
+    order_ref: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    items: list[InventoryReservationItem] = Field(min_length=1, max_length=100)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class InventoryReservationResponse(BaseModel):
+    order_ref: str
+    status: str
+    items: list[InventoryReservationItem]
+    idempotent: bool

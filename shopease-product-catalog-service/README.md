@@ -19,7 +19,7 @@ shopease-product-catalog-service/
 ├── app/
 │   ├── core/                 # Environment settings and JWT authorization
 │   ├── database/             # SQLAlchemy engine, Base, and request sessions
-│   ├── models/               # Category, Product, InventoryTransaction
+│   ├── models/               # Category, Product, inventory audit and reservations
 │   ├── routers/              # Product, category, inventory APIs
 │   ├── schemas/              # Request validation and response schemas
 │   └── services/             # Database business operations
@@ -41,6 +41,9 @@ The service owns the `shopease_product_catalog_db` database.
 - `inventory_transactions`: product FK, IN/OUT type, positive quantity,
   previous and updated stock, remarks, timestamp. Initial product stock and
   product updates that change stock are recorded here as well.
+- `inventory_reservations`: unique order reference/product pairs, reserved
+  quantity, RESERVED/RELEASED state, and timestamps. It prevents duplicate
+  stock deductions and restorations when Order retries an operation.
 
 Products reference categories with `ON DELETE RESTRICT`. Category deletion
 returns `409 Conflict` while any products reference it. Reassign or deactivate
@@ -63,14 +66,17 @@ signing key. Root `.gitignore` excludes `.env` and `keys/`.
 | `JWT_PUBLIC_KEY_FILE` | Auth Service public-key PEM; Compose mounts it as a secret |
 | `JWT_ALGORITHM` | Must be `RS256` |
 | `LOW_STOCK_THRESHOLD` | Default low-stock threshold, non-negative (default `10`) |
+| `ORDER_SERVICE_API_KEY` | Shared secret for Order-only reservation/release endpoints |
 
 The verifier enforces the Auth Service's issuer (`shopease-auth-service`),
 audience (`shopease-services`), signature, expiry, subject, and role claims.
-Every endpoint requires a valid bearer JWT. Authenticated customers can view
-active catalog products and categories. Only `admin`/`administrator` roles can
-write catalog/category data, see inactive records, or access inventory
-operations. Missing or invalid tokens receive `401`; insufficient permissions
-receive `403`.
+Product, category, and administrative inventory endpoints require a valid
+bearer JWT. Authenticated customers can view active catalog products and
+categories. Only `admin`/`administrator` roles can write catalog/category data,
+see inactive records, or use manual stock adjustments. The two order
+reservation endpoints instead require the configured `X-Order-Service-Key`;
+customer JWTs cannot call them. Missing/invalid credentials receive `401`;
+insufficient permissions receive `403`.
 
 ## Run with Docker Compose
 
@@ -170,6 +176,21 @@ stock. A database row lock serializes concurrent stock changes, and product
 stock plus its history row commit or roll back together. The low-stock endpoint
 uses `LOW_STOCK_THRESHOLD` by default; admins may set a non-negative
 `threshold` query parameter.
+
+Order reservations are only available to the Order Service:
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/inventory/reservations` | Atomically reserve all order items using a unique `order_ref` |
+| POST | `/api/inventory/reservations/{order_ref}/release` | Restore a reservation once; retries are idempotent |
+
+Both require the `X-Order-Service-Key` header and a matching
+`ORDER_SERVICE_API_KEY`. The catalog locks product rows in sorted order,
+verifies every item before decrementing any stock, and commits stock,
+reservation state, and audit history together. A repeated matching reservation
+returns the existing state; a mismatched reuse of an order reference is a
+conflict. A repeated release returns the released state without adding stock
+again.
 
 ## Testing
 

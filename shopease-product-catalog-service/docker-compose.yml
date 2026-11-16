@@ -13,6 +13,7 @@ services:
       JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
       JWT_ALGORITHM: RS256
       LOW_STOCK_THRESHOLD: ${LOW_STOCK_THRESHOLD:-10}
+      ORDER_SERVICE_API_KEY: ${ORDER_SERVICE_API_KEY:?Set ORDER_SERVICE_API_KEY in .env}
     ports:
       - "8005:8000"
     depends_on:

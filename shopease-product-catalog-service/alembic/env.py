@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, pool
 
 from app.core.config import settings
 from app.database.connection import Base
-from app.models import Category, InventoryTransaction, Product  # noqa: F401
+from app.models import Category, InventoryReservation, InventoryTransaction, Product  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

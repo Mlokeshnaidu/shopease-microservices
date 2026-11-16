@@ -1,0 +1,65 @@
+services:
+  order-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ""
+      MYSQL_HOST: order-mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-shopease_order_db}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
+      JWT_ALGORITHM: RS256
+      PRODUCT_SERVICE_URL: ${PRODUCT_SERVICE_URL_DOCKER:-http://host.docker.internal:8005}
+      USER_SERVICE_URL: ${USER_SERVICE_URL_DOCKER:-http://host.docker.internal:8004}
+      CATALOG_SERVICE_API_KEY: ${CATALOG_SERVICE_API_KEY:?Set CATALOG_SERVICE_API_KEY in .env}
+      DEFAULT_SHIPPING_CHARGE: ${DEFAULT_SHIPPING_CHARGE:-10.00}
+      TAX_RATE: ${TAX_RATE:-0.10}
+    ports:
+      - "8006:8000"
+    depends_on:
+      order-mysql:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    networks:
+      - order-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    secrets:
+      - auth_jwt_public_key
+
+  order-mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-shopease_order_db}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - order-mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping --protocol=TCP --host=127.0.0.1 --port=3306 --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - order-network
+
+volumes:
+  order-mysql-data:
+
+secrets:
+  auth_jwt_public_key:
+    file: ${JWT_PUBLIC_KEY_FILE:?Set JWT_PUBLIC_KEY_FILE in .env}
+
+networks:
+  order-network:
+    driver: bridge

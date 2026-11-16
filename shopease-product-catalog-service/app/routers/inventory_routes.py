@@ -1,19 +1,41 @@
 """Stock operations and transaction history endpoints."""
 
+import hmac
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import AdminClaims
+from app.core.config import settings
 from app.database.connection import get_db
 from app.models.product_model import Product
-from app.schemas.inventory_schema import InventoryResponse, InventoryTransactionResponse, StockAdjustment
+from app.schemas.inventory_schema import (
+    InventoryReservationCreate,
+    InventoryReservationItem,
+    InventoryReservationResponse,
+    InventoryResponse,
+    InventoryTransactionResponse,
+    StockAdjustment,
+)
 from app.schemas.product_schema import ProductResponse
 from app.services.inventory_service import inventory_service
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 Database = Annotated[Session, Depends(get_db)]
+
+
+def require_order_service(
+    api_key: Annotated[str | None, Header(alias="X-Order-Service-Key")] = None,
+) -> None:
+    expected_key = settings.order_service_api_key.get_secret_value()
+    if not expected_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Order inventory integration is not configured.",
+        )
+    if api_key is None or not hmac.compare_digest(api_key, expected_key):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid order service credentials.")
 
 
 def _stock_response(product: Product) -> dict[str, int | str | bool]:
@@ -69,3 +91,60 @@ def get_inventory_history(product_id: int, _claims: AdminClaims, db: Database):
     if product is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
     return inventory_service.history(db, product_id)
+
+
+@router.post("/reservations", response_model=InventoryReservationResponse)
+def reserve_inventory_for_order(
+    data: InventoryReservationCreate,
+    db: Database,
+    _service: Annotated[None, Depends(require_order_service)],
+):
+    try:
+        reservation_status, idempotent = inventory_service.reserve_for_order(db, data)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    quantities: dict[int, int] = {}
+    for item in data.items:
+        quantities[item.product_id] = quantities.get(item.product_id, 0) + item.quantity
+    return InventoryReservationResponse(
+        order_ref=data.order_ref,
+        status=reservation_status,
+        items=[
+            InventoryReservationItem(product_id=product_id, quantity=quantity)
+            for product_id, quantity in sorted(quantities.items())
+        ],
+        idempotent=idempotent,
+    )
+
+
+@router.post(
+    "/reservations/{order_ref}/release",
+    response_model=InventoryReservationResponse,
+)
+def release_order_inventory(
+    order_ref: str,
+    db: Database,
+    _service: Annotated[None, Depends(require_order_service)],
+):
+    try:
+        reservation_status, reservations, idempotent = inventory_service.release_for_order(
+            db,
+            order_ref,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    return InventoryReservationResponse(
+        order_ref=order_ref,
+        status=reservation_status,
+        items=[
+            InventoryReservationItem(product_id=item.product_id, quantity=item.quantity)
+            for item in reservations
+        ],
+        idempotent=idempotent,
+    )

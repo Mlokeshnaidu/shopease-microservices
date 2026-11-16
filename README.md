@@ -32,6 +32,14 @@ Authentication has the private signing key.
 │   ├── Dockerfile
 │   ├── docker-compose.yml
 │   └── README.md
+├── shopease-order-service/
+│   ├── app/
+│   ├── alembic/
+│   ├── tests/
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   └── README.md
 ├── .gitignore
 └── README.md
 ```
@@ -45,7 +53,8 @@ Each service README contains its own setup, API, and testing instructions.
 | Authentication | Registration, login, and JWT-protected auth APIs | Its own `requirements.txt`, `.env`, Docker Compose configuration, and MySQL database | `http://localhost:8002/docs` |
 | User | JWT-protected customer profiles, account status, and delivery addresses | Its own `requirements.txt`, `.env`, Docker Compose configuration, and MySQL database | `http://localhost:8004/docs` |
 | Product | Product CRUD APIs | Its own `requirements.txt`; in-memory product data; no database | `http://localhost:8003/docs` |
-| Product Catalog | JWT-protected product/category catalog, search, and transactional inventory management | Its own `requirements.txt`, `.env`, Docker Compose configuration, Alembic migrations, and MySQL database | `http://localhost:8005/docs` |
+| Product Catalog | JWT-protected product/category APIs and transactional stock operations, including idempotent order reservations | Its own `requirements.txt`, `.env`, Docker Compose configuration, Alembic migrations, and MySQL database | `http://localhost:8005/docs` |
+| Order Management | Customer order lifecycle, price validation, shipping snapshots, pagination, status transitions, and inventory saga | Its own `requirements.txt`, `.env`, Docker Compose configuration, Alembic migrations, and MySQL database | `http://localhost:8006/docs` |
 
 Install dependencies and run commands from the corresponding service directory.
 Do not install multiple services' requirements into one shared virtual environment.
@@ -57,6 +66,11 @@ remain local to their owning service. Product Catalog is separate from the
 original Product Service, owns a third isolated MySQL database, and verifies
 Auth JWTs locally with the Auth Service public key. See
 `shopease-product-catalog-service/README.md` for setup and API details.
+Order Management owns a fourth isolated MySQL database and verifies JWTs with
+the same Auth public key. It uses User and Catalog REST APIs only; Catalog stock
+reservation/release operations are protected by a shared Order Service key and
+are idempotent by order reference. See
+`shopease-order-service/README.md` for setup and API details.
 
 ## Run a service independently
 
@@ -110,8 +124,20 @@ docker compose up --build
 Open `http://localhost:8005/docs`. This service owns a separate MySQL database;
 its Compose startup applies Alembic migrations before starting the API.
 
-## Configuration and secrets
+### Order Management Service
 
+Configure `shopease-order-service/.env` and provide the Auth Service's public
+key path, then run:
+
+```powershell
+cd shopease-order-service
+docker compose up --build
+```
+
+Open `http://localhost:8006/docs`. This service keeps its own MySQL database and
+migrates the order schema before starting the API.
+
+## Configuration and secrets
 Each service owns its environment configuration. Real `.env` files and local
 virtual environments are ignored by Git; `.env.example` files are intended for
 sharing and must contain placeholders only. Never commit credentials, tokens,

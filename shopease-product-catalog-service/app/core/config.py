@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     jwt_public_key_file: Path = Path("keys/jwt_public.pem")
     jwt_algorithm: str = "RS256"
     low_stock_threshold: int = 10
+    order_service_api_key: SecretStr = SecretStr("")
 
     model_config = SettingsConfigDict(
         env_file=".env",

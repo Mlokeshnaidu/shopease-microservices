@@ -1,4 +1,7 @@
+from pydantic import SecretStr
+
 from app.core.dependencies import get_current_claims, require_admin
+from app.core.config import settings
 from app.main import app
 
 
@@ -147,3 +150,79 @@ def test_admin_routes_reject_customer_and_unauthenticated_requests(client):
     app.dependency_overrides.pop(get_current_claims)
     unauthenticated_response = client.post("/api/categories/", json=body)
     assert unauthenticated_response.status_code == 401
+
+
+def test_order_inventory_reservations_are_idempotent_and_atomic(client, monkeypatch):
+    monkeypatch.setattr(settings, "order_service_api_key", SecretStr("test-order-service-key"))
+    category = _category(client)
+    first = _product(client, category["id"], sku="RESERVE-1", stock_quantity=5).json()
+    second = _product(
+        client,
+        category["id"],
+        sku="RESERVE-2",
+        stock_quantity=1,
+    ).json()
+    service_headers = {"X-Order-Service-Key": "test-order-service-key"}
+    reservation = {
+        "order_ref": "ORD-IDEMPOTENT-1",
+        "items": [
+            {"product_id": first["id"], "quantity": 2},
+            {"product_id": first["id"], "quantity": 1},
+        ],
+    }
+
+    unauthorized = client.post("/api/inventory/reservations", json=reservation)
+    assert unauthorized.status_code == 401
+
+    first_reservation = client.post(
+        "/api/inventory/reservations",
+        json=reservation,
+        headers=service_headers,
+    )
+    assert first_reservation.status_code == 200
+    assert first_reservation.json()["idempotent"] is False
+    assert client.get(f"/api/products/{first['id']}").json()["stock_quantity"] == 2
+
+    retry = client.post(
+        "/api/inventory/reservations",
+        json=reservation,
+        headers=service_headers,
+    )
+    assert retry.status_code == 200
+    assert retry.json()["idempotent"] is True
+    assert client.get(f"/api/products/{first['id']}").json()["stock_quantity"] == 2
+
+    mismatch = client.post(
+        "/api/inventory/reservations",
+        json={
+            "order_ref": "ORD-IDEMPOTENT-1",
+            "items": [{"product_id": first["id"], "quantity": 2}],
+        },
+        headers=service_headers,
+    )
+    assert mismatch.status_code == 409
+
+    atomic_failure = client.post(
+        "/api/inventory/reservations",
+        json={
+            "order_ref": "ORD-INSUFFICIENT",
+            "items": [
+                {"product_id": first["id"], "quantity": 1},
+                {"product_id": second["id"], "quantity": 2},
+            ],
+        },
+        headers=service_headers,
+    )
+    assert atomic_failure.status_code == 409
+    assert client.get(f"/api/products/{first['id']}").json()["stock_quantity"] == 2
+
+    release_path = "/api/inventory/reservations/ORD-IDEMPOTENT-1/release"
+    first_release = client.post(release_path, headers=service_headers)
+    assert first_release.status_code == 200
+    assert first_release.json()["idempotent"] is False
+    assert client.get(f"/api/products/{first['id']}").json()["stock_quantity"] == 5
+
+    repeated_release = client.post(release_path, headers=service_headers)
+    assert repeated_release.status_code == 200
+    assert repeated_release.json()["idempotent"] is True
+    assert client.get(f"/api/products/{first['id']}").json()["stock_quantity"] == 5
